@@ -4,9 +4,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
 // Generate 4 digit OTP
-const generateOTP = () => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-};
+const generateOTP = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
 
 // Helper to sign auth JWT (DRY extraction)
 const signAuthToken = (userId: number, isUserVerified: boolean) =>
@@ -24,8 +23,8 @@ const setAuthTokenCookie = (
   res.cookie("token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    maxAge: 24 * 60 * 60 * 1000, // 1 day
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+    path: "/",
   });
   return token;
 };
@@ -37,14 +36,14 @@ export const signup = async (req: Request, res: Response) => {
       where: { email: email },
     });
     if (userExists) {
-      return res.status(400).json({ message: "User already exists" });
+      return res
+        .status(200)
+        .json({ message: "User already exists", status: 400 });
     }
     const hashedPassword = await bcrypt.hash(password, 5);
     const user = await prisma.user.create({
       data: { email, password: hashedPassword, name },
     });
-
-    console.log("Usercreated:", user);
 
     const otp = generateOTP();
     await prisma.oTP.create({
@@ -57,17 +56,21 @@ export const signup = async (req: Request, res: Response) => {
 
     setAuthTokenCookie(res, user.id, user.isUserVerified);
 
-    return res
-      .status(200)
-      .json({ message: "User registered successfully, OTP sent to email" });
+    return res.status(200).json({
+      message: "User registered successfully, OTP sent to email",
+      status: 200,
+    });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(200)
+      .json({ message: "Internal server error", status: 500 });
   }
 };
 
 export const verifyOTP = async (req: Request, res: Response) => {
-  const { otp, userId } = req.body;
+  const { otp } = req.body;
+  const userId = req.userId; // Extracted from authMiddleware
 
   try {
     const record = await prisma.oTP.findFirst({
@@ -75,15 +78,15 @@ export const verifyOTP = async (req: Request, res: Response) => {
     });
 
     if (!record) {
-      return res.status(400).json({ message: "OTP not found" });
+      return res.status(200).json({ message: "OTP not found", status: 400 });
     }
 
     if (record.expiresAt < new Date()) {
-      return res.status(400).json({ message: "OTP has expired" });
+      return res.status(200).json({ message: "OTP has expired", status: 400 });
     }
 
     if (record.code !== otp) {
-      return res.status(400).json({ message: "Invalid OTP" });
+      return res.status(200).json({ message: "Invalid OTP", status: 400 });
     }
 
     await prisma.user.update({
@@ -97,10 +100,14 @@ export const verifyOTP = async (req: Request, res: Response) => {
 
     setAuthTokenCookie(res, userId, true);
 
-    return res.status(200).json({ message: "OTP verified successfully" });
+    return res
+      .status(200)
+      .json({ message: "OTP verified successfully", status: 200 });
   } catch (err) {
     console.log(err);
-    return res.status(500).json({ message: "Internal server error" });
+    return res
+      .status(200)
+      .json({ message: "Internal server error", status: 500 });
   }
 };
 
@@ -111,27 +118,52 @@ export const login = async (req: Request, res: Response) => {
   });
 
   if (!userExists)
-    return res.status(401).json({ message: "Invalid Credentials!" });
-  const isPassword = bcrypt.compare(password, userExists?.password);
+    return res
+      .status(200)
+      .json({ message: "Invalid Credentials!", status: 401 });
+  const isPassword = await bcrypt.compare(password, userExists?.password);
 
   if (!isPassword)
-    return res.status(401).json({ message: "Invalid Credentials!" });
+    return res
+      .status(200)
+      .json({ message: "Invalid Credentials!", status: 401 });
+
+  const token = setAuthTokenCookie(
+    res,
+    userExists.id,
+    userExists.isUserVerified
+  );
 
   if (!userExists?.isUserVerified) {
     const otp = generateOTP();
-    await prisma.oTP.create({
-      data: {
-        code: otp,
-        userId: userExists.id,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // OTP valid for 10 minutes
-      },
+    const otpRecord = await prisma.oTP.findFirst({
+      where: { userId: userExists.id },
     });
-    return res.status(400).json({
+    if (otpRecord) {
+      // Update existing OTP
+      await prisma.oTP.update({
+        where: { userId: userExists.id },
+        data: {
+          code: otp,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // OTP valid for 10 minutes
+        },
+      });
+    } else {
+      await prisma.oTP.create({
+        data: {
+          code: otp,
+          userId: userExists.id,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // OTP valid for 10 minutes
+        },
+      });
+    }
+    return res.status(200).json({
       message: "Email not verified, OTP sent to your registered Email",
+      status: 403,
     });
   }
 
-  setAuthTokenCookie(res, userExists.id, userExists.isUserVerified);
-
-  return res.status(200).json({ message: "User logged in successfully" });
+  return res
+    .status(200)
+    .json({ message: "User logged in successfully", status: 200 });
 };

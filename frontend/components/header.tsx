@@ -1,18 +1,12 @@
-"use client";
-
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 import { User } from "lucide-react";
+import { cookies } from "next/headers";
 
-export default function Header() {
-  const [mounted, setMounted] = useState(false);
+export default async function Header() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("token");
 
-  // Prevent hydration mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
+  console.log("HeaderToken:", token);
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white/80 backdrop-blur-md dark:border-gray-800 dark:bg-gray-900/80">
       <div className="container mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
