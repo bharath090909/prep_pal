@@ -32,3 +32,12 @@ model OTP {
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+model Roles {
+  id          Int      @id @default(autoincrement())
+  role_id     String   @unique
+  role_name   String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
